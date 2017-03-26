@@ -1,0 +1,75 @@
+---
+title: "Machine Learning Assignment"
+author: "Danielle Boucher"
+date: "3/25/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(ggplot2)
+library(randomForest)
+library(parallel)
+library(doParallel)
+```
+## Predicting Proper Exercise: Machine Learning Final Project
+
+### Introduction and Pre-Processing
+This report uses the Weight Lifting Data Set (WLE) and attempts to create a model that can predict *how well* a user is performing dumbbell exercises. Full details of the data set can be found [here](http://groupware.les.inf.puc-rio.br/har#dataset). 
+  
+  First, download and clean the WLE dataset. The original dataset has 160 columns - it is useful to remove those with NA values, and those that are not valuable for prediction (timestamps, entry IDs, and user data). We're left with 52 predictors, and the *classe* outcome variable. 
+  
+  The original data comes with a training set, and a test set of 20 entries. Since the provided test set does not include the true *classe* variable for validation, we will subdivide the training set into a training (70%) and validation (30%) in order to assess out-of-sample error and model accuracy.  
+
+```{r cache=TRUE}
+# Set up parallel processing for speed
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+# Load WLE data sets
+traindata <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", na.strings=c("NA", "#DIV/0!"))
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", na.strings=c("NA", "#DIV/0!"))
+
+# Remove unneeded columns
+col.na <- colSums(sapply(traindata, is.na))
+col.na.test <- colSums(sapply(testing, is.na))
+traindata <- traindata[,col.na == 0 & col.na.test == 0]
+traindata <- traindata[,-1:-7]
+testing <- testing[,col.na == 0 & col.na.test == 0]
+testing <- testing[,-1:-7]
+
+# Create a validation data set
+set.seed(6497)
+inTrain <- createDataPartition(y = traindata$classe, p=0.7, list=FALSE)
+training <- traindata[inTrain,]
+validation <- traindata[-inTrain,]
+```
+
+```{r}
+dim(training); dim(validation); dim(testing)
+str(training)
+```
+### Model Creation
+Using the *caret* package, we begin by creating a random forest model. 
+
+```{r cache=TRUE}
+# Generate a random forest model on the Testing set:
+fitControl <- trainControl(method = "cv", number = 10, allowParallel = TRUE)
+randomforestmodel <- train(classe~., method="rf", data=training, trControl = fitControl)
+# Make classe predictions using the Validation data set and generate the confusion matrix.
+rfprediction <- predict(randomforestmodel, validation)
+confusionMatrix(rfprediction, validation$classe)
+```
+
+The confusion matrix reveals that the model accuracy of this random forest method is over 99%. In fact, in the case of identifying Class A (dumbbell exercises done correctly), only 2 of 1674 examples were misclassified, yielding an accuracy of 99.88%. We therefore conclude that the random forest model is sufficient for predicting how well a user is performing these dumbbell exercises, and move on to evaluate against the testing set.  
+
+### Model Assessment
+
+A highly accurate model has been created, with an estimated out of sample error of 0.8%. Next we will predict and display the results of the twenty test cases in the testing set. 
+
+```{r}
+rfpredictionfinal <- predict(randomforestmodel, testing)
+rfpredictionfinal
+```
+
